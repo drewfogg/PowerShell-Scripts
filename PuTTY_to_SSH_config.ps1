@@ -81,6 +81,10 @@ Get-ChildItem $regPath -Name | ForEach-Object {
     
     # Check if SSH config
     if (((Get-ItemProperty -Path "$regPath\$_").Protocol) -eq 'ssh') {
+
+        # Clear previously used variables
+        $hostLine = $hostnameLine = $userLine = $PortLine = $identityLine =$tunnelLine = $agentLine = $null
+
         # Write the Host for easy SSH use
         $host_nospace = $_.replace('%20', $SpaceChar)
         $hostLine =  "Host $host_nospace"
@@ -93,20 +97,23 @@ Get-ChildItem $regPath -Name | ForEach-Object {
         else { $sshHostname = $puttyHostname }
         $hostnameLine = "`tHostName $sshHostname"   
     
-        # Parse Hostname for special cases (Bastion) to create User
-        if ($puttyHostname -like '*@*') {
-            $sshUser = $puttyHostname.split("@")[0..($puttyHostname.split('@').length - 2)] -join '@'
+        # Use UserName field if avaliable or Parse Hostname for special cases (Bastion) to create User (or nothing)
+        $sshUser = (Get-ItemProperty -Path "$regPath\$_").UserName
+        if (!$sshUser) {
+            if ($puttyHostname -like '*@*') {
+                $sshUser = $puttyHostname.split("@")[0..($puttyHostname.split('@').length - 2)] -join '@'
+                $userLine = "`tUser $sshUser"
             }
-        else { $sshHostname = $puttyHostname }
-        $userLine = "`tUser $sshUser"   
-
+        }
+        else { $userLine = "`tUser $sshUser" }
+        
         # Parse for Identity File
         $puttyKeyfile = (Get-ItemProperty -Path "$regPath\$_").PublicKeyFile
         if ($puttyKeyfile) { 
             $sshKeyfile = $puttyKeyfile.replace('\', '/')
             if ($prefix) { $sshKeyfile = $sshKeyfile.replace('C:', $prefix) }
             $identityLine = "`tIdentityFile $sshKeyfile"
-            }
+        }
 
         # Parse Configured Tunnels
         $puttyTunnels = (Get-ItemProperty -Path "$regPath\$_").PortForwardings
@@ -133,19 +140,17 @@ Get-ChildItem $regPath -Name | ForEach-Object {
                 }
 
             }
-
+        }
         # Parse if Forward Agent is required
         $puttyAgent = (Get-ItemProperty -Path "$regPath\$_").AgentFwd
         if ($puttyAgent -eq 1) { $agentLine = "`tForwardAgent yes" }
 
         # Parse if non-default port
         $puttyPort = (Get-ItemProperty -Path "$regPath\$_").PortNumber
-        if (-Not $puttyPort -eq 22) { $PortLine = "`tPort $puttyPort" }
-
-        }
+        if (-Not ($puttyPort -eq 22)) { $PortLine = "`tPort $puttyPort" }
 
         # Build output string
-        $output = "$hostLine`n$hostnameLine`n$userLine`n$identityLine`n$tunnelLine`n$agentLine`n"
+        $output = "$hostLine`n$hostnameLine`n$userLine`n$PortLine`n$identityLine`n$tunnelLine`n$agentLine"
 
         # Output to file if set, otherwise STDOUT
         if ($outfile) { $output | Out-File $outfile -Append}
